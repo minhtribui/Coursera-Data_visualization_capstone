@@ -1,0 +1,522 @@
+---
+title: "Project Final Report"
+author: "Minh Tri Bui"
+date: "17/05/2022"
+output:
+  html_document: 
+   code_folding: hide
+---
+
+```{r setup, include=FALSE, message = FALSE, warning = FALSE,}
+
+##### Make sure you load any required packages.
+
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+library(tidyverse)   # For tidying data
+library(gganimate)   # For animate and save motion
+library(gifski)      # For animate and save motion
+library(plotly)      # For dynamic graph
+library(rmarkdown)   # For convert R Markdown documents into a variety of formats
+library(pastecs)     # For using by() function
+library(formattable) # For converting numeric to percentage
+library(DT)          # For using datatable()
+library(htmlwidgets) # Save the Interactive file at .html format
+library(ggplot2)
+library(scales)       # Label number with scientific
+# When there are some options that you want to set for multiple tables produced from the same R session, you can use the global option named DT.options
+
+### Create datable() with Filter, in order to add filter for each column - you must do manually in each datatable() command.
+options(DT.options = list(pageLength = 5, 
+                          lengthMenu = c(5, 10, 20, 50, 100), # Adjust option in Show entries
+                          autoWidth = TRUE,
+                          language = list(search = 'Filter:'))) 
+```
+
+## Import Your Data  
+
+In the following code hunk, importing and wrangling the data.
+
+```{r data_import, message=FALSE, warning=FALSE}
+# Attach 3 datasets to R
+setwd("D:/Statistics/R/R data/test")
+malaria <- read_csv("R captone/Number of indigenous malaria cases.csv")
+falciparum <- read_csv("R captone/Number of indigenous P. falciparum malaria cases.csv")
+vivax <- read_csv("R captone/Number of indigenous P. vivax malaria cases.csv")
+
+# Select the value that we are going to plot
+malaria <- malaria %>% select(Location, Period, FactValueNumeric)
+falciparum <- falciparum %>% select(Location, Period, FactValueNumeric)
+vivax <- vivax %>% select(Location, Period, FactValueNumeric)
+
+## Changing column names 
+colnames(malaria)[which(names(malaria) == "FactValueNumeric")] <- "Total_cases"
+colnames(falciparum)[which(names(falciparum) == "FactValueNumeric")] <- "P.falciparum"
+colnames(vivax)[which(names(vivax) == "FactValueNumeric")] <- "P.vivax"
+
+## Merging dataframe
+data <- malaria %>% full_join(falciparum) %>% full_join(vivax)
+data$Others = data$Total_cases - data$P.falciparum - data$P.vivax
+data$Period = as.factor(data$Period)
+#Changing names of the specific attributes within Location:
+data$Location[data$Location=="Democratic Republic of the Congo"] <- "Congo"
+data$Location[data$Location=="United Republic of Tanzania"] <- "Tanzania"
+data$Location[data$Location=="Venezuela (Bolivarian Republic of)"] <- "Venezuela"
+
+#Show the table of the dataset
+datatable(data, 
+          filter = 'top',
+          caption = htmltools::tags$caption(     
+                    style = 'caption-side: top; text-align: center;',
+                    'Table 1.1: ', htmltools::em('The number of indigenous malaria cases in the world')))
+```
+    
+### Part 1: Top ten countries in 2020 {.tabset}
+#### 1.1 The total malaria cases  
+For my first figure, I am going to create a bar chart that plots top ten countries with highest total malaria cases on the x axis (the cases total)  and the number of malaria cases the y axis in 2020.  
+
+```{r data_1.1, message=FALSE, warning=FALSE}
+# Select top 10 countries for total cases
+plot1 <- data %>% arrange(desc(Period),desc( Total_cases)) %>% slice(1:10)
+datatable(plot1, 
+          filter = 'top',
+          caption = htmltools::tags$caption(     
+                    style = 'caption-side: top; text-align: center;',
+                    'Table 1.2: ', htmltools::em('The number of top ten malaria cases in the world')))
+
+# Format the e display for some columns
+plot1$emalaria <- formatC(plot1$Total_cases, format = "e", digits = 2) # Note: class of "emalaria" is character, not numeric
+plot1$efalciparum <- formatC(plot1$P.falciparum, format = "e", digits = 2)  
+plot1$evivax <- formatC(plot1$P.vivax, format = "e", digits = 2)  
+plot1$eothers <- formatC(plot1$Others, format = "e", digits = 2)  
+
+# Draw a plot
+ggplot(plot1, aes(x = reorder(Location, - Total_cases), y = Total_cases, fill = -Total_cases)) + 
+  geom_bar(stat = "identity") + 
+  labs( x = "Country", y= "Number of cases", title = "Top ten countries with highest malaria cases in 2020") +
+  scale_y_continuous(limits  = c(0, 2.5e+07), labels = label_scientific()) +
+  geom_text(aes(label = emalaria), vjust = - 0.5, size = 3) +
+  theme(plot.title = element_text(hjust = 0.5)) +    # Adjust the title to the center
+  theme(plot.title =    element_text(size = (15), face = "bold" ),
+        axis.title =    element_text(size = (13), face = "bold", colour = "black"),
+        axis.text.x = element_text(angle= 30, hjust=1, size= 9))
+```
+    
+For further examination, I would like to break down the total number of cases to cases caused by *P.falcuparum*, *P.viax* and other factors.
+
+```{r data_1.2, message=FALSE, warning=FALSE}
+plot2 <- 
+  plot1 %>% pivot_longer(cols = c("Total_cases","P.falciparum","P.vivax","Others"),
+                      names_to = "Cases",
+                      values_to = "Count",
+                      values_drop_na = TRUE) %>% 
+            select(- (emalaria :eothers))
+plot2$ecount <- formatC(plot2$Count, format = "e", digits = 2)
+plot2$Cases <- factor(plot2$Cases, levels = c ("Total_cases", "P.falciparum", "P.vivax", "Others")) 
+                  
+a <- ggplot(plot2, aes(x = reorder(Location,  - Count), y = Count, text1 = ecount, fill = Cases)) + 
+  geom_bar(stat = "identity", position = "dodge") + 
+  labs( x = "Country", y= "Number of cases", title = "Top ten countries with malaria cases in 2020") +
+  scale_y_continuous(limits  = c(0, 2.5e+07), labels = label_scientific()) +
+  theme(plot.title = element_text(hjust = 0.5)) +    # Adjust the title to the center
+  theme(plot.title =    element_text(size = (15), face = "bold" ),
+        axis.title =    element_text(size = (13), face = "bold", colour = "black"),
+        axis.text.x = element_text(angle= 30, hjust=1, size= 9))
+
+#Saving ggplotly: 
+#  saveWidget(as_widget(ggplotly(a)), file="Top ten countries with malaria cases in 2020.html")
+#Save on online system
+#  Sys.setenv("plotly_username"="Minh_Tri_92")
+#  Sys.setenv("plotly_api_key"="B6mso8qyGEpF7kJekgKe")
+#  api_create(ggplotly(a), "Top ten countries with malaria cases in 2020")
+ggplotly (a)
+```
+**Result**: 
+     
+   + As we can see from table 1.2 or from interactive graph above, there is a lack data leading to the causes for malaria are unknown in 9/10 top ten countries.   
+       
+   + Only Tanzania has full data with 5,678,149 *P.falciparum* cases and 291,804 other causes in 2020.
+    
+     
+#### 1.2 The *P.falciparum* cases  
+For my next figure, I am going to create a bar chart that plots top ten countries with highest malaria cases caused by *P.falciparum* on the x axis and the number of malaria cases the y axis in 2020.  
+
+```{r data_1.3, message=FALSE, warning=FALSE}
+# Select the top ten countries of P.falciparum cases
+plot3 <- data %>% arrange(desc(Period),desc(P.falciparum)) %>% slice(1:10)
+datatable(plot3, 
+          filter = 'top',
+          caption = htmltools::tags$caption(     
+                    style = 'caption-side: top; text-align: center;',
+                    'Table 1.3: ', htmltools::em('The number of top ten malaria cases caused by *P.falciparum*')))
+
+# Display e value for some columns
+plot3$emalaria <- formatC(plot3$Total_cases, format = "e", digits = 2) # Note: class of "emalaria" is character, not numeric
+plot3$efalciparum <- formatC(plot3$P.falciparum, format = "e", digits = 2)  
+plot3$evivax <- formatC(plot3$P.vivax, format = "e", digits = 2)  
+plot3$eothers <- formatC(plot3$Others, format = "e", digits = 2)  
+
+# Draw a plot
+ggplot(plot3, aes(x = reorder(Location,  - P.falciparum), y = P.falciparum, fill= -P.falciparum)) + 
+  geom_bar(stat = "identity", color='blue') + 
+  labs( x = "Country", y= "Number of cases", title = "Top ten countries with highest P.falciparum cases in 2020") +
+  geom_text(aes(label = efalciparum), vjust = - 0.5, size = 3) +
+  theme(plot.title = element_text(hjust = 0.5)) +    # Adjust the title to the center
+  theme(plot.title =    element_text(size = (15), face = "bold" ),
+        axis.title =    element_text(size = (13), face = "bold", colour = "black"),
+        axis.text.x = element_text(angle= 30, hjust=1, size= 9),
+        legend.position = "none")
+```
+
+For further examination, I would like to compare the total number of cases caused by *P.falcuparum* of these countries to total cases, *P.viax* and other factors.
+
+```{r data_1.4, message=FALSE, warning=FALSE}
+plot4 <- 
+  plot3 %>% pivot_longer(cols = c("Total_cases","P.falciparum","P.vivax","Others"),
+                      names_to = "Cases",
+                      values_to = "Count",
+                      values_drop_na = TRUE) %>% 
+            select(- (emalaria :eothers))
+plot4$ecount <- formatC(plot4$Count, format = "e", digits = 2)
+plot4$Cases <- factor(plot4$Cases, levels = c ("P.falciparum", "Total_cases", "P.vivax", "Others")) 
+                  
+b <- ggplot(plot4, aes(x = reorder(Location,  - Count), y = Count, text1 = ecount, fill = Cases)) + 
+  geom_bar(stat = "identity", position = "dodge") + 
+  labs( x = "Country", y= "Number of cases", title = "Top ten countries with P.falciparum causes in 2020") +
+  # scale_y_continuous(limits  = c(0, 2.5e+07), labels = label_scientific()) +
+  theme(plot.title = element_text(hjust = 0.5)) +    # Adjust the title to the center
+  theme(plot.title =    element_text(size = (15), face = "bold" ),
+        axis.title =    element_text(size = (13), face = "bold", colour = "black"),
+        axis.text.x = element_text(angle= 30, hjust=1, size= 9))
+ggplotly (b)
+```
+    
+**Result**: Among top ten countries with *P.falciparum* causes in 2020: 
+   + 5/10 countries were lack of data.    
+      
+   + 4/10 countries (Mozambique, Zambia, Côte d'Ivoire and Kenya) had no *P.vivax* cases or others.  
+       
+   + 1/10 country (Tanzania) had no *P.vivax* cases but other causes.    
+
+
+#### 1.3 The *P.vivax* cases  
+For my next figure, I am going to create a bar chart that plots top ten countries with highest malaria cases caused by *P.vivax* on the x axis and the number of malaria cases the y axis in 2020.  
+
+```{r data_1.5, message=FALSE, warning=FALSE}
+# Select the top 10 countries for P.vivax cases:
+plot5 <- data %>% arrange(desc(Period),desc(P.vivax)) %>% slice(1:10)
+datatable(plot5, 
+          filter = 'top',
+          caption = htmltools::tags$caption(     
+                    style = 'caption-side: top; text-align: center;',
+                    'Table 1.4: ', htmltools::em('The number of top ten malaria cases caused by *P.vivax*')))
+
+# Display the e value:
+plot5$emalaria <- formatC(plot5$Total_cases, format = "e", digits = 2) # Note: class of "emalaria" is character, not numeric
+plot5$efalciparum <- formatC(plot5$P.falciparum, format = "e", digits = 2)  
+plot5$evivax <- formatC(plot5$P.vivax, format = "e", digits = 2)  
+plot5$eothers <- formatC(plot5$Others, format = "e", digits = 2)  
+
+# Draw a plot
+ggplot(plot5, aes(x = reorder(Location,  - P.vivax), y = P.vivax, fill = -P.vivax)) + 
+  geom_bar(stat = "identity", color='blue') + 
+  labs( x = "Country", y= "Number of cases", title = "Top ten countries with highest P.vivax cases in 2020") +
+  geom_text(aes(label = evivax), vjust = - 0.5, size = 3) +
+  theme(plot.title = element_text(hjust = 0.5)) +    # Adjust the title to the center
+  theme(plot.title =    element_text(size = (15), face = "bold" ),
+        axis.title =    element_text(size = (13), face = "bold", colour = "black"),
+        axis.text.x = element_text(angle= 30, hjust=1, size= 9),
+        legend.position = "none")
+```
+
+For further examination, I would like to compare the total number of cases caused by *P.falcuparum* of these countries to total cases, *P.viax* and other factors.
+
+```{r data_1.6, message=FALSE, warning=FALSE}
+plot6 <- 
+  plot5 %>% pivot_longer(cols = c("P.falciparum","P.vivax","Others"),
+                      names_to = "Cases",
+                      values_to = "Count",
+                      values_drop_na = TRUE) %>% 
+            select(- (emalaria :eothers))
+plot6$ecount <- formatC(plot6$Count, format = "e", digits = 2)
+plot6$Cases <- factor(plot6$Cases, levels = c ("P.vivax", "P.falciparum", "Others")) 
+                  
+c <- ggplot(plot6, aes(x = reorder(Location, -Count), y = Count, fill = Cases)) + 
+  geom_bar(stat = "identity", position = "dodge") + 
+  labs( x = "Country", y= "Number of cases", title = "Top ten countries with P.vivax causes in 2020") +
+  theme(plot.title = element_text(hjust = 0.5)) +    # Adjust the title to the center
+  theme(plot.title =    element_text(size = (15), face = "bold" ),
+        axis.title =    element_text(size = (13), face = "bold", colour = "black"),
+        axis.text.x = element_text(angle= 30, hjust=1, size= 9))
+ggplotly (c)
+```
+     
+**Result**: Among top ten countries with *P.vivax* causes in 2020:   
+     
+   + In Papua New Guinea, the number of cases caused by *P.falciparum* and *P.vivax* were almost equal. The interesting event was that 3.7e+05 cases caused by other factors which was almost double the cases caused by *P.falciparum* and *P.vivax*.    
+   
+   + Ethiopia, Sudan, Indonesia and India had more *P.falciparum* cases than *P.vivax* cases.  
+   
+   + In the remaining 5 countries, the *P.vivax* caused more cases than *P.falciparum*.   
+     
+    
+### Part 2: The highest cases vs degree of change of top ten countries over 10 years {.tabset}  
+
+For my next figure, I am going to create 2 plots to compare the differences of countries between the highest number of cases with the highest degree of changes through each year.
+
+#### 2.1 Highest cases 
+In this section, I will plot a bar-chart that illustrates the duration (from 2010 to 2020) on the x axis and the number of malaria cases the y axis of top 3 countries having highest cases in each year.  
+
+```{r data_2.1}
+# Select the top 3 countries for Total cases:
+plot7 <- 
+  data %>% 
+    arrange(desc(Period),desc(Total_cases)) %>% 
+    group_by(Period) %>% 
+    slice(1:3)
+
+datatable(plot7, 
+          filter = 'top',
+          caption = htmltools::tags$caption(     
+                    style = 'caption-side: top; text-align: center;',
+                    'Table 1.5: ', htmltools::em('The number of top 5 malaria cases from 2010 to 2020')))
+
+#Create a column of character vector that change the way the value is present:
+plot7$eTotal_cases <- formatC(plot7$Total_cases, format = "e", digits = 2)
+
+#Reorder the factor
+plot7$Location <- factor(plot7$Location, levels = c ("Angola", "Burundi", "Ghana", "Liberia", "Tanzania", "Burkina Faso", "Mozambique","Uganda","Nigeria","Congo")) 
+
+#Draw a plot
+a <- ggplot(plot7, aes(x = Period, y = Total_cases, label = eTotal_cases, fill = Location)) + 
+  geom_bar(stat = "identity", position = "dodge" ,width = 0.7) + 
+  labs( x = "Year", y= "Number of cases", title = "Top 3 highest malaria cases 2010-2020") +
+   scale_fill_brewer(palette = "Paired") +
+  theme(plot.title = element_text(hjust = 0.5)) +    # Adjust the title to the center
+  theme(plot.title =    element_text(size = (15), face = "bold" ),
+        axis.title =    element_text(size = (13), face = "bold", colour = "black"),
+        axis.text.x = element_text(angle= 30, hjust=1, size= 9)) 
+ggplotly(a)
+```
+**Result**:  
+    
+  + Congo is the country with the highest malaria cases from 2010 to 2020.
+     
+  + From 2014 to 2020: Nigeria has the second highest malaria cases, followed by Uganda or Mozambique or Burkina Faso in the 3rd place. 
+
+#### 2.2 Top degree of changes 
+In this section, I will plot a line-graph that plots the duration (from 2010 to 2020) on the x axis and the number of malaria cases the y axis of top 3 countries having highest changes in each year.  
+    
+First, I compare the degree of changes in the total number of cases:
+```{r data_2.2, message=FALSE, warning=FALSE}
+# Changing the data to wide format for further calculation (must use the single malaria data) 
+plot8 <- 
+  malaria %>% select(Location, Period, Total_cases ) %>%
+    pivot_wider(names_from = Period, values_from = Total_cases, names_glue = "Y{Period}")
+
+#Assign value to 0.1 instead of 0 for division: 
+plot8[plot8==0] <- 0.1
+
+#Calculate the change in the total number of cases (between 2 Year H1 = 2011-2010): 
+plot8 <- 
+  plot8 %>% mutate(
+  "2010-2011" = (Y2011 - Y2010) /Y2010,
+  "2011-2012" = (Y2012 - Y2011) / Y2011,
+  "2012-2013" = (Y2013 - Y2012) / Y2012,
+  "2013-2014" = (Y2014 - Y2013) /Y2013,
+  "2014-2015" = (Y2015 - Y2014) /Y2014,
+  "2015-2016" = (Y2016 - Y2015) /Y2015,
+  "2016-2017" = (Y2017 - Y2016) /Y2016,
+  "2017-2018" = (Y2018 - Y2017) /Y2017,
+  "2018-2019" = (Y2019 - Y2018) /Y2018,
+  "2019-2020" = (Y2020 - Y2019) /Y2019,) %>% 
+            pivot_longer(cols = c("2010-2011" :"2019-2020"),
+                      names_to = "Delta",
+                      values_to = "Proportion",
+                      values_drop_na = TRUE)
+
+
+#Select only 3 columns Location - Delta - Changes for visualization
+plot8 <- plot8 %>% 
+    select(Location, Delta,Proportion) %>% 
+    arrange(desc(Delta),desc(Proportion)) %>% 
+    group_by(Delta) %>% 
+    slice(1:3)
+
+# Add a column called Percentage
+plot8$Proportion = round(plot8$Proportion,2)
+plot8 = plot8 %>%  mutate(Percentage= percent(Proportion))
+
+# Show a table
+datatable(plot8, 
+          filter = 'top',
+          caption = htmltools::tags$caption(     
+                    style = 'caption-side: top; text-align: center;',
+                    'Table 1.6: ', htmltools::em('Top 3 increased malaria cases 2010-2020')))
+
+#Draw a plot
+a <- ggplot(plot8, aes(x = Delta, y = Proportion, text1 = Percentage, fill = Location)) + 
+  geom_bar(stat = "identity", position = "dodge" ,width = 0.7) + 
+  labs( x = "Year", y= "Percentage change", title = "Top 3 increased cases between 2010 and 2020") +
+  scale_y_continuous(labels = scales::percent, limits=c(0,200))+
+  theme(plot.title = element_text(hjust = 0.5)) +    # Adjust the title to the center
+  theme(plot.title =    element_text(size = (14), face = "bold" ),
+        axis.title =    element_text(size = (13), face = "bold", colour = "black"),
+        axis.text.x = element_text(angle= 30, hjust=1, size= 9)) 
+ggplotly(a)
+```
+**Result**:   
+    
+  + South Sudan experienced the highest increase during 2016-2017: 19430%. Chat and Djibouti experience the highest increase during 2012-2013: 9687% and 6636%.
+  
+  + The remaining countries experienced under 5000% increase.
+
+   
+    
+### Part 3: The linegraph over year {.subset}
+#### 3.1 Cases  
+Based on the 2 bar charts drawn in Part 2, I choose 6 countries for line graphs:   
+    
+   + 3 from highest cases: Congo, Nigeria, Uganda.      
+        
+   + 3 from highest degree of increase:  South Sudan, Chad and Djibouti.
+   
+```{r data_3.1}
+plot9 <- 
+  data %>%
+  filter (Location %in% c("Congo", "Nigeria", "Uganda", "South Sudan", "Chad", "Djibouti"))
+
+# Show a table
+datatable(plot9, 
+          filter = 'top',
+          caption = htmltools::tags$caption(     
+                    style = 'caption-side: top; text-align: center;',
+                    'Table 1.7: ', htmltools::em( 'Six countries with malaria cases 2010-2020')))
+
+#Draw a plot
+ggplot(plot9, aes(x = Period, y = Total_cases, colour = Location)) + 
+  stat_summary(geom = "point") + stat_summary(geom = "line", aes(group = Location)) +
+  labs( x = "Year", y= "Total cases", title = "Six countries with malaria cases 2010-2020") +
+  theme(plot.title = element_text(hjust = 0.5)) +    # Adjust the title to the center
+  theme(plot.title =    element_text(size = (14), face = "bold" ),
+        axis.title =    element_text(size = (13), face = "bold", colour = "black"),
+        axis.text.x = element_text(angle= 30, hjust=1, size= 9)) 
+
+```
+
+  
+#### 3.2 Degree of changes  
+Similar 6 countries are chosen to plot. Below is the table and the graph based on the proportion of change:
+
+```{r data_3.2}
+## Extract data similar to plot8 section
+plot10 <- 
+  malaria %>%
+  filter (Location %in% c("Congo", "Nigeria", "Uganda", "South Sudan", "Chad", "Djibouti"))%>%          select(Location, Period, Total_cases ) %>%
+  pivot_wider(names_from = Period, values_from = Total_cases, names_glue = "Y{Period}")
+
+#Assign value to 0.1 instead of 0 for division: 
+plot10[plot10==0] <- 0.1
+
+#Calculate the change in the total number of cases (between 2 Year H1 = 2011-2010): 
+plot10 <- 
+  plot10 %>% mutate(
+  "2010-2011" = (Y2011 - Y2010) /Y2010,
+  "2011-2012" = (Y2012 - Y2011) / Y2011,
+  "2012-2013" = (Y2013 - Y2012) / Y2012,
+  "2013-2014" = (Y2014 - Y2013) /Y2013,
+  "2014-2015" = (Y2015 - Y2014) /Y2014,
+  "2015-2016" = (Y2016 - Y2015) /Y2015,
+  "2016-2017" = (Y2017 - Y2016) /Y2016,
+  "2017-2018" = (Y2018 - Y2017) /Y2017,
+  "2018-2019" = (Y2019 - Y2018) /Y2018,
+  "2019-2020" = (Y2020 - Y2019) /Y2019,) %>% 
+            pivot_longer(cols = c("2010-2011" :"2019-2020"),
+                      names_to = "Delta",
+                      values_to = "Proportion",
+                      values_drop_na = TRUE)
+
+
+# Select only 3 columns Location - Delta - Changes for visualization
+plot10 <- plot10 %>% 
+    select(Location, Delta,Proportion) 
+
+# Show a table
+datatable(plot10, 
+          filter = 'top',
+          caption = htmltools::tags$caption(     
+                    style = 'caption-side: top; text-align: center;',
+                    'Table 1.8: ', htmltools::em('Degree of malaria changes in Six countries 2010-2020')))
+
+#Draw a plot
+a <- ggplot(plot10, aes(x = Delta, y = Proportion, colour = Location)) + 
+  stat_summary(geom = "point") + stat_summary(geom = "line", aes(group = Location)) + 
+  labs( x = "Year interval", y= "Proportion change", title = "Degree of changes of 6 countries 2010-2020") +
+  scale_y_continuous(labels = scales::percent, limits=c(-1,200))+
+  theme(plot.title = element_text(hjust = 0.5)) +    # Adjust the title to the center
+  theme(plot.title =    element_text(size = (14), face = "bold" ),
+        axis.title =    element_text(size = (13), face = "bold", colour = "black"),
+        axis.text.x = element_text(angle= 30, hjust=1, size= 9)) 
+ggplotly(a) 
+```
+**Result**:   
+    
+  + Among 6 countries, only South Sudan (2016-2017), Djibouti and Chad (2012-2013) experienced a sudden increase to over 5000%.    
+     
+  + Besides, between 2011-2012 and 2018-2019, Uganda and South Sudan also experienced an increase over 1000%.   
+     
+  + In the remaining period, these 6 countries only suffered a degree of change between -95%-460% 
+    
+     
+### Part 4: The boxplot of different countries over 10 years {.tabset}
+#### 4.1 Malaria cases
+
+```{r data_4.1}
+plot11 <- 
+  data %>% select("Location", "Period","Total_cases") %>%
+  filter(is.na(Total_cases) == FALSE) %>%
+  ggplot(aes(y=Total_cases)) +
+  geom_boxplot(aes(frame = Location)) + 
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank()) +
+  labs(x ="Location", y = "Total cases", title = "The malaria cases of each country between 2010 and 2020") 
+
+# Saving: 
+## Sys.setenv("plotly_username"="Minh_Tri_92")
+## Sys.setenv("plotly_api_key"="B6mso8qyGEpF7kJekgKe") 
+## api_create(plot11, "The malaria cases of each country between 2010 and 2020")
+ggplotly(plot11)
+```
+
+#### 4.2 P.falciparum cases
+
+```{r data_4.2}
+plot11 <- 
+  data %>% select("Location", "Period","P.falciparum") %>%
+  filter(is.na(P.falciparum) == FALSE) %>%
+  ggplot(aes(y=P.falciparum)) +
+  geom_boxplot(aes(frame = Location)) + 
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank()) +
+  labs(x ="Location", y = "Total cases", title = "The malaria cases caused by P.falciparum between 2010 and 2020")  
+
+ggplotly(plot11)
+```
+
+#### 4.3 P.vivax cases
+
+```{r data_4.3}
+plot11 <- 
+  data %>% select("Location", "Period","P.vivax") %>%
+  filter(is.na(P.vivax) == FALSE) %>%
+  ggplot(aes(y=P.vivax)) +
+  geom_boxplot(aes(frame = Location)) + 
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank()) +
+  labs(x ="Location", y = "Total cases", title = "The malaria cases caused by P.vivax between 2010 and 2020")  
+
+ggplotly(plot11)
+```
